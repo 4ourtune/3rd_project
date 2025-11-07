@@ -1,0 +1,25 @@
+# vc-ota-bridge.service
+#
+# 사용법:
+#   sudo cp /home/hj/vc_software/systemd/vc-ota-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now vc-ota-bridge.service
+#
+# 환경변수는 /home/hj/vc_env.sh를 통해 로드합니다.
+
+[Unit]
+Description=Vehicle Computer OTA Approval Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hj
+Group=hj
+WorkingDirectory=/home/hj/vc_software/apps/ota/
+ExecStart=/bin/bash -lc 'source /home/hj/vc_env.sh && exec /usr/bin/python3 /home/hj/vc_software/apps/ota/ota_bridge.py'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+#ifndef BSW_DRIVER_ISR_PRIORITY_H_
+#define BSW_DRIVER_ISR_PRIORITY_H_
+
+/* Definition of the interrupt priorities */
+/* High value - higher priority */
+
+#define ISR_PRIORITY_ASCLIN0_RX 0
+#define ISR_PRIORITY_ASCLIN0_TX 0
+
+#define ISR_PRIORITY_ASCLIN1_RX 3
+#define ISR_PRIORITY_ASCLIN1_TX 0
+
+#define ISR_PRIORITY_ASCLIN2_RX 5
+#define ISR_PRIORITY_ASCLIN2_TX 0
+
+#define ISR_PRIORITY_GPT1T3_TIMER 8
+#define ISR_PRIORITY_GPT2T6_TIMER 7
+
+#define ISR_PRIORITY_STM0 9
+
+#define ISR_PRIORITY_SCUERU0 11
+#define ISR_PRIORITY_SCUERU1 12
+#define ISR_PRIORITY_SCUERU2 13
+
+#endif /* BSW_DRIVER_ISR_PRIORITY_H_ */

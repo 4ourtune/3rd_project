@@ -1,0 +1,21 @@
+{
+    "unicast" : "192.168.2.30",
+    "network" : "eth0",
+    "logging": {
+        "level": "debug",
+        "console": "true"
+    },
+    "applications": [
+        {
+            "name": "rpi_client_app",
+            "id": "0x5678"
+        }
+    ],
+    "routing": "rpi_client_app",
+    "service-discovery": {
+        "enable": "true",
+        "multicast": "224.224.224.245",
+        "port" : "30490",
+        "protocol": "udp"
+    }
+}

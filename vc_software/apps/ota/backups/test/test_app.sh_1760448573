@@ -1,0 +1,12 @@
+#!/bin/bash
+# test_app.sh - 간단한 OTA 업데이트 검증용 실행파일
+
+LOG_FILE="/home/ts5516/2nd_project/vc_software/apps/test/test_app.log"
+
+echo "[test_app] 실행됨 - $(date)" >> "$LOG_FILE"
+
+# 10초마다 heartbeat 로그 남기기
+while true; do
+    echo "[test_app] heartbeat - $(date)" >> "$LOG_FILE"
+    sleep 10
+done

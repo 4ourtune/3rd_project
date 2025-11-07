@@ -1,0 +1,4 @@
+bluezero
+requests
+python-dotenv
+cryptography

@@ -1,0 +1,17 @@
+# vc-ota.service 파일
+
+[Unit]
+Description=Vehicle Computer OTA Update Service
+After=network.target
+
+[Service]
+WorkingDirectory=/home/hj/vc_software/apps/ota/
+ExecStart=/usr/bin/python3 /home/hj/vc_software/apps/ota/ota_service.py
+
+Type=simple
+User=hj
+Group=hj
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

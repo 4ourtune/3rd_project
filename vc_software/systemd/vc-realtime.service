@@ -1,0 +1,51 @@
+# ===============================
+# vc-realtime.service
+# (Vehicle Computer Real-Time Control Service)
+# ===============================
+
+[Unit]
+Description=Vehicle Computer Real-Time Control Service
+# 네트워크(SOME/IP) 초기화 후 실행
+After=network.target
+
+[Service]
+# --- 서비스 실행 환경 ---
+# 실행 디렉터리 (로그나 설정파일 경로 기준)
+WorkingDirectory=/home/hj/vc_software/apps/realtime/build
+
+# 실행할 실제 프로그램 (C++로 빌드된 vc_realtime)
+ExecStart=/home/hj/vc_software/apps/realtime/build/vc_realtime
+
+# 단일 실행 프로세스이므로 simple 타입
+Type=simple
+
+# --- 실행 계정 설정 ---
+# 실행 유저/그룹 지정 (root 필요 시 아래 User 주석 처리)
+User=hj
+Group=hj
+
+# --- 실시간 스케줄러 옵션 ---
+# RT 패치 커널(PREEMPT_RT) 사용 시 활성화
+# * CPUSchedulingPolicy=fifo  → SCHED_FIFO 스케줄링
+# * CPUSchedulingPriority=80 → 우선순위 (1~99)
+# * LimitRTPRIO=99           → 해당 프로세스가 올릴 수 있는 최대 우선순위
+# * LimitMEMLOCK=infinity    → 페이지 스와핑 방지 (실시간 안정성)
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=80
+
+# --- 서비스 안정성 설정 ---
+# 프로세스가 비정상 종료될 경우 자동 재시작
+Restart=always
+# 재시작 전 대기 시간 (선택)
+RestartSec=2
+
+# --- 로깅 ---
+# 표준출력을 journald로 보냄 (기본)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# 부팅 시 multi-user.target 단계에서 자동 시작
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+{
+  "version": "1.2.3",
+  "re_prompt_sec": 3600,
+  "update": {
+    "version": "1.2.3",
+    "checksum": "DEADBEEFCAFEBABE1234567890ABCDEF0123456789ABCDEF0123456789ABCDEF",
+    "require_confirm": false,
+    "target": {
+      "process_check": "test",
+      "target_path": "/home/pi/vc_software/apps/test/bin/test_app.sh",
+      "backup_path": "/home/pi/vc_software/apps/ota/backups/test/",
+      "source_path": "http://192.168.0.23:8000/test_app_v2.sh"
+    }
+  },
+  "meta": {
+    "sent_by": "pc-ota-publisher",
+    "ts": 1700000000
+  }
+}

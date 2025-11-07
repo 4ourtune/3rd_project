@@ -1,0 +1,17 @@
+# vc-digital-key.service 파일
+
+[Unit]
+Description=Vehicle Computer Digital Key Service
+After=network.target bluetooth.target
+
+[Service]
+WorkingDirectory=/home/hj/vc_software/digital_key
+ExecStart=/usr/bin/python3 /home/hj/vc_software/digital_key/digital_key_service.py
+Type=simple
+User=hj
+Group=hj
+# 일반 우선순위 서비스로 설정
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
