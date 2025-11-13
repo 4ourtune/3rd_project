@@ -1,6 +1,5 @@
 # apps/ota/ota_service.py
 import os
-import stat
 import time
 import subprocess
 import json
@@ -49,24 +48,8 @@ def apply_ota(target, version, checksum):
 
     # 4. 새 파일로 교체
     os.rename(temp_file, target_path)
+    os.chmod(target_path, 0o755)
     log(f"파일 교체 완료: {target_path}")
-    try:
-        current_mode = os.stat(target_path).st_mode
-    except OSError as exc:
-        log(f"신규 파일 정보 확인 실패: {exc}")
-        return False
-
-    required_exec = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    if not current_mode & required_exec:
-        new_mode = current_mode | required_exec
-        try:
-            os.chmod(target_path, new_mode)
-            log(f"실행 권한을 추가했습니다: {target_path} (mode={oct(new_mode & 0o777)})")
-        except PermissionError as exc:
-            log(f"실행 권한 설정 실패: {exc}")
-            return False
-    else:
-        log(f"실행 권한이 이미 설정되어 있습니다: {target_path}")
 
     # 5. 서비스 재시작
     try:

@@ -63,6 +63,7 @@ add_executable(sensor_comm_test
     shared.cpp    # 전역 공유 객체 정의 포함
     joystick_thread.cpp
     ipc_server.cpp
+    lkas_thread.cpp
 )
 
 target_link_libraries(sensor_comm_test

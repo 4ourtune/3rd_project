@@ -67,12 +67,12 @@ void sensor_thread() {
         // -------------------------------------------------------------
         // 4️. 로그 출력
         // -------------------------------------------------------------
-//cout << "[sensor_thread] Lux=" << pr.val
-//<< " | ToF=" << tof.distance_m * 1000 << " mm"
-//<< " | Ultrasonic(mm): L=" << g_shared.sensor.left_ultra_mm
-//<< ", R=" << g_shared.sensor.right_ultra_mm
-//<< ", Rear=" << g_shared.sensor.rear_ultra_mm
-//<< endl;
+        cout << "[sensor_thread] Lux=" << pr.val
+        << " | ToF=" << tof.distance_m * 1000 << " mm"
+        << " | Ultrasonic(mm): L=" << g_shared.sensor.left_ultra_mm
+        << ", R=" << g_shared.sensor.right_ultra_mm
+        << ", Rear=" << g_shared.sensor.rear_ultra_mm
+        << endl;
 
         // -------------------------------------------------------------
         // 5️. 주기 제어

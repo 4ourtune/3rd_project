@@ -16,10 +16,10 @@ constexpr int32_t  kDoorChirpHighFreqHz = 900;
 constexpr uint64_t kDoorChirpDurationMs = 180;
 
 static int map_joy_to_throttle(int y){ // 0~99
-    return std::clamp(y, -100, 100);
+    return std::clamp(y, 0, 99);
 }
 static int map_joy_to_steer(int x){    // 0~99
-    return std::clamp(x, -100, 100);
+    return std::clamp(x, 0, 99);
 }
 
 class AebController {
@@ -304,11 +304,11 @@ public:
         if (sensor.ambient_lux < 0){
             return false;
         }
-        return sensor.ambient_lux < kLuxThreshold;
+        return sensor.ambient_lux > kLuxThreshold;
     }
 
 private:
-    static constexpr int kLuxThreshold = 50;
+    static constexpr int kLuxThreshold = 1200;
 };
 
 int resolve_front_distance_mm(const SensorData& sen){
@@ -317,6 +317,122 @@ int resolve_front_distance_mm(const SensorData& sen){
     }
     return -1;
 }
+
+class AccController {
+public:
+    void reset(){
+        phase_ = Phase::Cruise;
+        phase_started_ms_ = 0;
+        have_valid_sensor_ = false;
+    }
+
+    void update(bool engine_on, ControlMode mode, const JoystickData& joy, const SensorData& sensor, uint64_t now_ms, ControlOutput& out){
+        if (!engine_on || mode == ControlMode::Manual){
+            reset();
+            return;
+        }
+
+        const int front_mm = resolve_front_distance_mm(sensor);
+        if (front_mm > 0){
+            have_valid_sensor_ = true;
+            last_sensor_ms_ = now_ms;
+        } else if (have_valid_sensor_ && now_ms - last_sensor_ms_ > kSensorTimeoutMs){
+            have_valid_sensor_ = false;
+            reset();
+            return;
+        }
+
+        if (!have_valid_sensor_){
+            out.throttle = map_joy_to_throttle(joy.y);
+            out.steer = map_joy_to_steer(joy.x);
+            return;
+        }
+
+        switch (phase_){
+        case Phase::Cruise:
+            if (obstacleDetected(front_mm)){
+                transition(Phase::LaneChangeLeft, now_ms);
+            }
+            break;
+
+        case Phase::LaneChangeLeft:
+            applyLaneChange(-kLaneChangeSteerDelta, joy, out);
+            out.throttle = std::min(out.throttle, kLaneChangeThrottle);
+            if (elapsed(now_ms) >= kLaneChangeDurationMs){
+                transition(Phase::LaneChangeRight, now_ms);
+            }
+            break;
+
+        case Phase::LaneChangeRight:
+            applyLaneChange(kLaneChangeSteerDelta, joy, out);
+            out.throttle = std::min(out.throttle, kLaneChangeThrottle);
+            if (elapsed(now_ms) >= kLaneChangeDurationMs){
+                transition(Phase::AdaptiveCruise, now_ms);
+            }
+            break;
+
+        case Phase::AdaptiveCruise:
+            applyAdaptiveControl(front_mm, joy, out);
+            if (front_mm >= 0 && front_mm > kAccReleaseDistanceMm){
+                transition(Phase::Cruise, now_ms);
+            }
+            break;
+        }
+    }
+
+private:
+    enum class Phase { Cruise, LaneChangeLeft, LaneChangeRight, AdaptiveCruise };
+
+    static constexpr int kObstacleTriggerMm = 800;
+    static constexpr int kLaneChangeDurationMs = 1200;
+    static constexpr int kLaneChangeSteerDelta = 18;
+    static constexpr int kLaneChangeThrottle = 60;
+    static constexpr int kAccTargetDistanceMm = 900;
+    static constexpr int kAccReleaseDistanceMm = 1500;
+    static constexpr double kAccKp = 0.04;
+    static constexpr int kAccMinThrottle = 58;
+    static constexpr int kAccMaxThrottle = 78;
+    static constexpr uint64_t kSensorTimeoutMs = 300;
+
+    bool obstacleDetected(int front_mm) const{
+        return front_mm >= 0 && front_mm <= kObstacleTriggerMm;
+    }
+
+    void applyLaneChange(int steer_delta, const JoystickData& joy, ControlOutput& out) const{
+        int steer_cmd = map_joy_to_steer(joy.x + steer_delta);
+        out.steer = steer_cmd;
+    }
+
+    void applyAdaptiveControl(int front_mm, const JoystickData& joy, ControlOutput& out) const{
+        int base = map_joy_to_throttle(joy.y);
+        if (front_mm < 0){
+            out.throttle = std::clamp(base, kAccMinThrottle, kAccMaxThrottle);
+            return;
+        }
+
+        double error = static_cast<double>(front_mm - kAccTargetDistanceMm);
+        int adjustment = static_cast<int>(error * kAccKp);
+        int command = std::clamp(base + adjustment, kAccMinThrottle, kAccMaxThrottle);
+        out.throttle = command;
+    }
+
+    void transition(Phase next, uint64_t now_ms){
+        phase_ = next;
+        phase_started_ms_ = now_ms;
+    }
+
+    uint64_t elapsed(uint64_t now_ms) const{
+        if (phase_started_ms_ == 0 || now_ms < phase_started_ms_){
+            return 0;
+        }
+        return now_ms - phase_started_ms_;
+    }
+
+    Phase phase_ = Phase::Cruise;
+    uint64_t phase_started_ms_ = 0;
+    bool have_valid_sensor_ = false;
+    uint64_t last_sensor_ms_ = 0;
+};
 
 class ControlLoop {
 public:
@@ -343,6 +459,7 @@ private:
     AutoParkingController aps_;
     AebController aeb_;
     HighBeamAssist hba_;
+    AccController acc_;
     ControlMode last_mode_ = ControlMode::Assist;
     bool door_state_initialized_ = false;
     bool last_door_locked_ = false;
@@ -497,47 +614,18 @@ ControlOutput ControlLoop::computeOutput(const ControlInputs& inputs){
     ControlOutput out{};
     initializeOutput(out);
 
-    if (!inputs.engine){
-        applyDoorLockFeedback(inputs, out);
-        last_mode_ = inputs.mode;
-        return out;
-    }
-
-    updateAutoParkingState(inputs.engine, inputs.mode);
-
-    if (inputs.mode == ControlMode::Auto && aps_.active()){
-        aps_.step(inputs.now_ms * 1000, inputs.sensor, kSensorIntervalUs);
-        out.throttle = aps_.throttlePercent();
-        out.steer    = aps_.steerPercent();
-    } else {
-        int thr = map_joy_to_throttle(inputs.joy.y);
-        int str = map_joy_to_steer(inputs.joy.x);
-
-        if (inputs.mode == ControlMode::Assist){
-            str = std::clamp(str, -80, 80);
-        }
-
-        out.throttle = std::clamp(thr, -100, 100);
-        out.steer    = std::clamp(str, -100, 100);
-    }
-
-    const bool high_beam_active = inputs.engine && hba_.shouldEnableFrontHighBeam(inputs.sensor);
-    out.led_front_up_on   = high_beam_active;
-    out.led_front_down_on = inputs.engine;
-
-    int front_distance_mm = resolve_front_distance_mm(inputs.sensor);
-    int forward_speed = std::max(out.throttle, 0);
-    if (aeb_.update(front_distance_mm, forward_speed)){
-        out.buzzerOn    = true;
-        out.frequency   = kAebBuzzerFreqHz;
-        out.alert_interval_ms = 0;
-        out.throttle    = -100;
-        out.led_back_on = true;
-    }
-
-    applyDoorLockFeedback(inputs, out);
-
     last_mode_ = inputs.mode;
+    
+    //lkas 명령
+    out.throttle = std::clamp(inputs.joy.y, -100, 100);
+    if (out.throttle > LKAS_MAX_THROTTLE_CMD){
+        out.throttle = LKAS_MAX_THROTTLE_CMD;
+    }
+    out.steer    = std::clamp(inputs.joy.x, -100, 100);
+
+    // ACC 제어는 현재 비활성화. 향후 재사용 시 아래 호출을 복구하세요.
+    // acc_.update(inputs.engine, inputs.mode, inputs.joy, inputs.sensor, inputs.now_ms, out);
+    
     return out;
 }
 

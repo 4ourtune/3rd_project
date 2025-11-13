@@ -7,7 +7,7 @@
 using namespace std;
 
 // -------------------- Singleton --------------------
-VSomeIPManager::VSomeIPManager() {}
+VSomeIPManager::VSomeIPManager() : subscribed_(false) {}
 VSomeIPManager::~VSomeIPManager() {}
 
 VSomeIPManager& VSomeIPManager::getInstance() {
@@ -55,7 +55,7 @@ bool VSomeIPManager::init() {
     app_->register_availability_handler(SERVICE_ID_CONTROL, INSTANCE_ID, handler);
     app_->register_availability_handler(SERVICE_ID_SYSTEM, INSTANCE_ID, handler);
 
-    // 메시지 수신 핸들러
+    // 메시지 수신 핸들러 (Request/Response 및 Event 모두 처리)
     app_->register_message_handler(vsomeip::ANY_SERVICE, INSTANCE_ID, vsomeip::ANY_METHOD,
                                    [this](std::shared_ptr<vsomeip::message> msg){ this->onMessage(msg); });
 
@@ -72,40 +72,90 @@ bool VSomeIPManager::init() {
 }
 
 
-// // -------------------- Availability --------------------
-// void VSomeIPManager::onAvailability(vsomeip::service_t s, vsomeip::instance_t i, bool avail) {
-//     cout << "[SOME/IP] Service 0x" << hex << s << " instance 0x" << i
-//          << (avail ? " AVAILABLE" : " UNAVAILABLE") << dec << endl;
-// }
-// 1. onAvailability 수정
+// -------------------- Availability --------------------
 void VSomeIPManager::onAvailability(vsomeip::service_t s, vsomeip::instance_t i, bool avail) {
     cout << "[SOME/IP] Service 0x" << hex << s << " instance 0x" << i
          << (avail ? " AVAILABLE" : " UNAVAILABLE") << dec << endl;
 
     std::lock_guard<std::mutex> lock(mtx_avail_);
-    if (avail)
+    if (avail) {
         available_services_.insert(s);
-    else
+        cv_avail_.notify_all();
+    } else {
         available_services_.erase(s);
+    }
 }
 
-// 2. isServiceAvailable() 함수 추가
 bool VSomeIPManager::isServiceAvailable(uint16_t service_id) {
     std::lock_guard<std::mutex> lock(mtx_avail_);
     return available_services_.count(service_id) > 0;
 }
 
-// 추가: 서비스 실제 연결 대기 함수
 bool VSomeIPManager::waitForService(uint16_t service_id, int timeout_ms) {
-    const int step = 100;
-    int waited = 0;
-    while (waited < timeout_ms) {
-        if (isServiceAvailable(service_id))
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(step));
-        waited += step;
+    std::unique_lock<std::mutex> lock(mtx_avail_);
+    return cv_avail_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                               [this, service_id]() { 
+                                   return available_services_.count(service_id) > 0; 
+                               });
+}
+
+
+// -------------------- Event Subscription --------------------
+void VSomeIPManager::subscribeToSensorEvents() {
+    if (subscribed_) {
+        cout << "[VSomeIPManager] Already subscribed to sensor events" << endl;
+        return;
     }
-    return false;
+
+    // 센서 서비스가 available 될 때까지 대기
+    if (!waitForService(SERVICE_ID_SENSOR, 5000)) {
+        cout << "[VSomeIPManager] Warning: Sensor service not available, subscribing anyway..." << endl;
+    }
+
+    // PR Event 구독
+    std::set<vsomeip::eventgroup_t> pr_groups;
+    pr_groups.insert(EVENTGROUP_ID_PR);
+    app_->request_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_PR_DATA, pr_groups);
+    app_->subscribe(SERVICE_ID_SENSOR, INSTANCE_ID, EVENTGROUP_ID_PR);
+    cout << "[VSomeIPManager] Subscribed to PR event (0x" << hex << EVENT_ID_PR_DATA << ")" << dec << endl;
+
+    // ToF Event 구독
+    std::set<vsomeip::eventgroup_t> tof_groups;
+    tof_groups.insert(EVENTGROUP_ID_TOF);
+    app_->request_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_TOF_DATA, tof_groups);
+    app_->subscribe(SERVICE_ID_SENSOR, INSTANCE_ID, EVENTGROUP_ID_TOF);
+    cout << "[VSomeIPManager] Subscribed to ToF event (0x" << hex << EVENT_ID_TOF_DATA << ")" << dec << endl;
+
+    // Ultrasonic Events 구독
+    std::set<vsomeip::eventgroup_t> ult_groups;
+    ult_groups.insert(EVENTGROUP_ID_ULT);
+    app_->request_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_ULT_1, ult_groups);
+    app_->request_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_ULT_2, ult_groups);
+    app_->request_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_ULT_3, ult_groups);
+    app_->subscribe(SERVICE_ID_SENSOR, INSTANCE_ID, EVENTGROUP_ID_ULT);
+    cout << "[VSomeIPManager] Subscribed to Ultrasonic events (0x" << hex 
+         << EVENT_ID_ULT_1 << ", 0x" << EVENT_ID_ULT_2 << ", 0x" << EVENT_ID_ULT_3 << ")" << dec << endl;
+
+    subscribed_ = true;
+}
+
+void VSomeIPManager::unsubscribeFromSensorEvents() {
+    if (!subscribed_) {
+        return;
+    }
+
+    app_->unsubscribe(SERVICE_ID_SENSOR, INSTANCE_ID, EVENTGROUP_ID_PR);
+    app_->unsubscribe(SERVICE_ID_SENSOR, INSTANCE_ID, EVENTGROUP_ID_TOF);
+    app_->unsubscribe(SERVICE_ID_SENSOR, INSTANCE_ID, EVENTGROUP_ID_ULT);
+    
+    app_->release_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_PR_DATA);
+    app_->release_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_TOF_DATA);
+    app_->release_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_ULT_1);
+    app_->release_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_ULT_2);
+    app_->release_event(SERVICE_ID_SENSOR, INSTANCE_ID, EVENT_ID_ULT_3);
+
+    cout << "[VSomeIPManager] Unsubscribed from all sensor events" << endl;
+    subscribed_ = false;
 }
 
 
@@ -113,20 +163,31 @@ bool VSomeIPManager::waitForService(uint16_t service_id, int timeout_ms) {
 void VSomeIPManager::onMessage(const shared_ptr<vsomeip::message>& msg) {
     auto sid = msg->get_service();
     auto mid = msg->get_method();
+    auto msg_type = msg->get_message_type();
     auto payload = msg->get_payload();
     auto data = payload->get_data();
     auto len = payload->get_length();
 
+    // Event notification인지 확인
+    bool is_event = (msg_type == vsomeip::message_type_e::MT_NOTIFICATION);
+
+    if (is_event) {
+        cout << "[VSomeIPManager] Received EVENT notification: Service=0x" << hex << sid 
+             << " Event=0x" << mid << " Length=" << dec << len << endl;
+    }
+
     lock_guard<mutex> lock(mtx_data_);
 
-    // ---------- 센서 응답 ----------
+    // ---------- 센서 응답 및 이벤트 ----------
     if (sid == SERVICE_ID_SENSOR) {
-        if (mid == METHOD_ID_PR && len >= 12) {
+        // PR 데이터 (Method ID 또는 Event ID)
+        if ((mid == METHOD_ID_PR || mid == EVENT_ID_PR_DATA) && len >= 12) {
             size_t o = 0;
             latest_pr_.val = get_value<uint32_t>(data, o);
             latest_pr_.received_time_us = get_value<uint64_t>(data, o);
         }
-        else if (mid == METHOD_ID_TOF && len >= 20) {
+        // ToF 데이터 (Method ID 또는 Event ID)
+        else if ((mid == METHOD_ID_TOF || mid == EVENT_ID_TOF_DATA) && len >= 20) {
             size_t o = 0;
             latest_tof_.id = get_value<uint8_t>(data, o);
             latest_tof_.system_time_ms = get_value<uint32_t>(data, o);
@@ -135,16 +196,40 @@ void VSomeIPManager::onMessage(const shared_ptr<vsomeip::message>& msg) {
             latest_tof_.signal_strength = get_value<uint16_t>(data, o);
             latest_tof_.received_time_us = get_value<uint64_t>(data, o);
         }
-        else if (mid == METHOD_ID_ULT && len > 0) {
-            latest_ult_.clear();
-            size_t o = 0;
-            uint8_t count = get_value<uint8_t>(data, o);
-            for (int i = 0; i < count && o + 16 <= len; ++i) {
-                UltrasonicData_t u;
-                u.dist_raw_mm = get_value<int32_t>(data, o);
-                u.dist_filt_mm = get_value<int32_t>(data, o);
-                u.received_time_us = get_value<uint64_t>(data, o);
-                latest_ult_.push_back(u);
+        // Ultrasonic 데이터 (Method ID 또는 Event IDs)
+        else if ((mid == METHOD_ID_ULT || mid == EVENT_ID_ULT_1 || 
+                  mid == EVENT_ID_ULT_2 || mid == EVENT_ID_ULT_3) && len > 0) {
+            // 단일 Event의 경우 하나의 센서 데이터만 포함
+            if (is_event && (mid == EVENT_ID_ULT_1 || mid == EVENT_ID_ULT_2 || mid == EVENT_ID_ULT_3)) {
+                if (len >= 16) {
+                    size_t o = 0;
+                    UltrasonicData_t u;
+                    u.dist_raw_mm = get_value<int32_t>(data, o);
+                    u.dist_filt_mm = get_value<int32_t>(data, o);
+                    u.received_time_us = get_value<uint64_t>(data, o);
+                    
+                    // Event ID에 따라 인덱스 결정
+                    int idx = (mid == EVENT_ID_ULT_1) ? 0 : (mid == EVENT_ID_ULT_2) ? 1 : 2;
+                    
+                    // 벡터 크기 확보
+                    if (latest_ult_.size() < 3) {
+                        latest_ult_.resize(3);
+                    }
+                    latest_ult_[idx] = u;
+                }
+            }
+            // Request/Response의 경우 모든 센서 데이터 포함
+            else if (mid == METHOD_ID_ULT) {
+                latest_ult_.clear();
+                size_t o = 0;
+                uint8_t count = get_value<uint8_t>(data, o);
+                for (int i = 0; i < count && o + 16 <= len; ++i) {
+                    UltrasonicData_t u;
+                    u.dist_raw_mm = get_value<int32_t>(data, o);
+                    u.dist_filt_mm = get_value<int32_t>(data, o);
+                    u.received_time_us = get_value<uint64_t>(data, o);
+                    latest_ult_.push_back(u);
+                }
             }
         }
     }
@@ -156,7 +241,7 @@ void VSomeIPManager::onMessage(const shared_ptr<vsomeip::message>& msg) {
         resp.updated = true;
         resp.received_time_us = chrono::duration_cast<chrono::microseconds>(
                                     chrono::steady_clock::now().time_since_epoch()).count();
-        resp.result_code = (len >= 1) ? data[0] : 0xFF; // result code 첫 byte 저장
+        resp.result_code = (len >= 1) ? data[0] : 0xFF;
         latest_ctrl_resps_.push_back(resp);
     }
 }

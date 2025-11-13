@@ -9,11 +9,11 @@
 
 //SharedData g_shared;
 
-void joystick_thread();
 void sensor_thread();
 void control_thread();
 void comm_thread();
 void ipc_thread();
+void lkas_thread();
 
 static std::atomic<bool> g_stop_requested{false};
 
@@ -22,7 +22,7 @@ static void sigint_handler(int){
 }
 
 int main(){
-    // 1?. vsomeip √ ±‚»≠
+    // 1?. vsomeip ????
     VSomeIPManager& someip = VSomeIPManager::getInstance();
     if (!someip.init()) {
         std::cout << "[main] ERROR: vsomeip init failed\n";
@@ -32,7 +32,7 @@ int main(){
 
     std::signal(SIGINT, sigint_handler);
 
-    std::thread t_joy(joystick_thread);
+    std::thread t_lkas(lkas_thread);
     std::thread t_sensor(sensor_thread);
     std::thread t_ctrl(control_thread);
     std::thread t_comm(comm_thread);
@@ -62,7 +62,7 @@ int main(){
         sleep_ms(50);
     }
 
-    t_joy.join();
+    t_lkas.join();
     t_sensor.join();
     t_ctrl.join();
     t_comm.join();

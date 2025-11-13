@@ -1,0 +1,11 @@
+{
+  "frame_width": 1920,
+  "frame_height": 1080,
+  "lane_width_cm": 25.0,
+  "lane_width_px": 370.0,
+  "pixels_per_cm": 14.8,
+  "cm_per_pixel": 0.06756756756756757,
+  "camera_height_cm": 15.0,
+  "source_image": "images/capture_0010.jpg",
+  "timestamp": 1762515445.6447494
+}

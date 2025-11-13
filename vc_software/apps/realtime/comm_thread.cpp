@@ -1,8 +1,10 @@
 #include "vsomeip_manager.h"
 #include "shared.h"
+#include "config.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <algorithm>
 
 using namespace std;
 
@@ -26,6 +28,12 @@ void comm_thread() {
     }
 
     cout << "[comm_thread] Routing stabilized, start sending..." << endl;
+
+    auto map_logical_to_hw_steer = [](int logical_cmd) {
+        int clamped = std::clamp(logical_cmd, 0, static_cast<int>(LKAS_JOY_CENTER * 2));
+        int mirrored = static_cast<int>(LKAS_JOY_CENTER * 2) - clamped;
+        return std::clamp(mirrored, -100, 100);
+    };
 
     while (g_shared.running) {
         ControlOutput cur;
@@ -70,8 +78,10 @@ void comm_thread() {
         }
 
         if (cur.throttle != prev_out.throttle || cur.steer != prev_out.steer) {
-            someip.requestMotorControl(cur.steer, cur.throttle);
-            cout << "[comm_thread] Motor steer=" << cur.steer
+            int steer_hw = map_logical_to_hw_steer(cur.steer);
+            someip.requestMotorControl(steer_hw, cur.throttle);
+            cout << "[comm_thread] Motor steer(logical)=" << cur.steer
+                 << " steer(hw)=" << steer_hw
                  << " throttle=" << cur.throttle << endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
         }
