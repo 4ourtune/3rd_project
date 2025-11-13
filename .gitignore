@@ -7,3 +7,11 @@ logs/
 vc_software/apps/realtime/build/*
 build/** */
 !build/vc_realtime
+.cproject
+.project
+*.lsl
+.ads/
+.settings/
+Configurations/
+Libraries/
+TriCore Debug (TASKING)/
